@@ -8,7 +8,7 @@ import warnings
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/predict": {"origins": "https://ml-client-e3vd.onrender.com"}}, supports_credentials=True)
+CORS(app, resources={r"/predict": {"origins": "*"}}, supports_credentials=True)
 
 # Load all trained models and feature lists
 models = {
