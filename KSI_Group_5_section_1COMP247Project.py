@@ -457,17 +457,11 @@ from sklearn.metrics import (
 )
 import matplotlib.pyplot as plt
 import joblib
-import os
-import inspect
+import pandas as pd
+
+from sklearn.model_selection import GridSearchCV
 
 model_scores = {}
-
-os.chdir("D:/Road_Risk_Predictor_Using_Machine_Learning/ML_server1")
-print(f"Working directory: {os.getcwd()}")
-
-# Dynamically get the path to the script, even in Spyder
-script_path = os.path.abspath(inspect.getfile(inspect.currentframe()))
-script_dir = os.path.dirname(script_path)
 
 plt.figure(figsize=(8, 6))  # ROC plot setup
 
@@ -487,28 +481,44 @@ fpr, tpr, _ = roc_curve(y_test, baseline_log_proba)
 plt.plot(fpr, tpr, label="LogReg (Before) AUC = {:.2f}".format(auc(fpr, tpr)))
 
 # Save baseline model
-save_path_baseline_log = os.path.join(os.getcwd(), "logistic_regression_baseline.pkl")
 joblib.dump({
     "model": baseline_log_model,
     "features": final_feature_names
-}, save_path_baseline_log)
-print(f"Saved baseline model at: {save_path_baseline_log}")
-print("----------------------------------------")
+}, "logistic_regression_baseline.pkl")
+print("Saved as 'logistic_regression_baseline.pkl'")
 
 # -------------------------------------------------------------
-# LOGISTIC REGRESSION - AFTER TUNING
+# LOGISTIC REGRESSION - AFTER TUNING using Grid Search
 # -------------------------------------------------------------
-tuned_log_model = LogisticRegression(
-    penalty='l2',               # L2 regularization
-    solver='liblinear',         # More stable on small/mid datasets
-    class_weight='balanced',    # Handle imbalanced classes
-    max_iter=1000,
-    random_state=25
+
+# Step 1: Define the hyperparameter grid to search over
+param_grid_log = {
+    'penalty': ['l1', 'l2'],                 # I compare L1 = Lasso, L2 = Ridge
+    'solver': ['liblinear'],                # 'liblinear' supports both L1 and L2
+    'class_weight': ['balanced', None],     # Handles imbalanced classes
+    'C': [0.01, 0.1, 1, 10, 100]             # Inverse of regularization strength (smaller = stronger regularization)
+}
+
+# Step 2: Use GridSearchCV for hyperparameter tuning
+grid_search_log = GridSearchCV(
+    estimator=LogisticRegression(max_iter=1000, random_state=25),
+    param_grid=param_grid_log,
+    scoring='f1',     # Focus on F1 score
+    cv=5,             # 5-fold cross-validation
+    n_jobs=-1         # Use all cores
 )
-tuned_log_model.fit(X_train_balanced, y_train_balanced)
+
+# Step 3: Fit to training data
+grid_search_log.fit(X_train_balanced, y_train_balanced)
+
+# Step 4: Best estimator
+tuned_log_model = grid_search_log.best_estimator_
+
+# Step 5: Predictions
 tuned_log_pred = tuned_log_model.predict(X_test)
 tuned_log_proba = tuned_log_model.predict_proba(X_test)[:, 1]
 
+# Step 6: Score reporting
 model_scores["Logistic Regression"] = {
     "Accuracy": accuracy_score(y_test, tuned_log_pred),
     "Precision": precision_score(y_test, tuned_log_pred),
@@ -516,19 +526,20 @@ model_scores["Logistic Regression"] = {
     "F1 Score": f1_score(y_test, tuned_log_pred)
 }
 
+# Step 7: Output evaluation
 print("\n---------- Logistic Regression (After Tuning) ----------")
+print("Best Parameters Found:", grid_search_log.best_params_)
 print("Confusion Matrix:\n", confusion_matrix(y_test, tuned_log_pred))
 print("Classification Report:\n", classification_report(y_test, tuned_log_pred))
 fpr, tpr, _ = roc_curve(y_test, tuned_log_proba)
 plt.plot(fpr, tpr, label="LogReg (Tuned) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save tuned model
-save_path_tuned_log = os.path.join(os.getcwd(), "logistic_regression_model.pkl")
+# Step 8: Save the model
 joblib.dump({
     "model": tuned_log_model,
     "features": final_feature_names
-}, save_path_tuned_log)
-print(f"Saved tuned model at: {save_path_tuned_log}")
+}, "logistic_regression_model.pkl")
+print("Logistic Regression model saved as 'logistic_regression_model.pkl'")
 print("----------------------------------------")
 
 # 2. Random Forest
@@ -547,27 +558,45 @@ fpr, tpr, _ = roc_curve(y_test, baseline_rf_proba)
 plt.plot(fpr, tpr, label="RF (Before) AUC = {:.2f}".format(auc(fpr, tpr)))
 
 # Save baseline model
-save_path_baseline_rf = os.path.join(os.getcwd(), "random_forest_baseline.pkl")
 joblib.dump({
     "model": baseline_rf_model,
     "features": final_feature_names
-}, save_path_baseline_rf)
-print(f"Saved baseline model at: {save_path_baseline_rf}")
+}, "random_forest_baseline.pkl")
+print("Saved as 'random_forest_baseline.pkl'")
 print("----------------------------------------")
 
 # -------------------------------------------------------------
-# RANDOM FOREST - AFTER TUNING (Improved Hyperparameters)
+# RANDOM FOREST - AFTER TUNING (Using GridSearchCV)
 # -------------------------------------------------------------
-tuned_rf_model = RandomForestClassifier(
-    n_estimators=300,        # Increased number of trees
-    max_depth=25,            # Limit tree depth to prevent overfitting
-    class_weight='balanced', # Address class imbalance
-    random_state=25
+
+# Define parameter grid for tuning
+param_grid = {
+    'n_estimators': [100, 200, 300],     # Number of trees
+    'max_depth': [10, 25, None],         # Maximum depth of trees
+    'class_weight': ['balanced', None]  # Handle imbalance
+}
+
+# Set up Grid Search with 5-fold cross-validation and F1 score as the metric
+grid_search_rf = GridSearchCV(
+    estimator=RandomForestClassifier(random_state=25),
+    param_grid=param_grid, # hyperparameters dictionary
+    scoring='f1',         # Evaluate with F1 score
+    cv=5,                 # The training data is split into 5 subsets
+    n_jobs=-1,
+    verbose=2             # logging of progress
 )
-tuned_rf_model.fit(X_train_balanced, y_train_balanced)
+
+# Fit grid search on balanced training data
+grid_search_rf.fit(X_train_balanced, y_train_balanced)
+
+# Use best estimator found from grid search
+tuned_rf_model = grid_search_rf.best_estimator_
+
+# Predict on the test set
 tuned_rf_pred = tuned_rf_model.predict(X_test)
 tuned_rf_proba = tuned_rf_model.predict_proba(X_test)[:, 1]
 
+# Store performance metrics
 model_scores["Random Forest"] = {
     "Accuracy": accuracy_score(y_test, tuned_rf_pred),
     "Precision": precision_score(y_test, tuned_rf_pred),
@@ -575,19 +604,20 @@ model_scores["Random Forest"] = {
     "F1 Score": f1_score(y_test, tuned_rf_pred)
 }
 
+# Print performance summary
 print("\n---------- Random Forest (After Tuning) ----------")
+print("Best Parameters Found:", grid_search_rf.best_params_)
 print("Confusion Matrix:\n", confusion_matrix(y_test, tuned_rf_pred))
 print("Classification Report:\n", classification_report(y_test, tuned_rf_pred))
 fpr, tpr, _ = roc_curve(y_test, tuned_rf_proba)
 plt.plot(fpr, tpr, label="RF (Tuned) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save tuned model
-save_path_tuned_rf = os.path.join(os.getcwd(), "random_forest_model.pkl")
+# Save tuned model to disk
 joblib.dump({
     "model": tuned_rf_model,
     "features": final_feature_names
-}, save_path_tuned_rf)
-print(f"Saved tuned model at: {save_path_tuned_rf}")
+}, "random_forest_model.pkl")
+print("Random Forest model saved as 'random_forest_model.pkl'")
 print("----------------------------------------")
 
 # 3. SVM
@@ -605,29 +635,40 @@ print("Classification Report:\n", classification_report(y_test, baseline_svm_pre
 fpr, tpr, _ = roc_curve(y_test, baseline_svm_proba)
 plt.plot(fpr, tpr, label="SVM (Before) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save baseline SVM model
-save_path_baseline_svm = os.path.join(os.getcwd(), "svm_baseline.pkl")
 joblib.dump({
     "model": baseline_svm_model,
     "features": final_feature_names
-}, save_path_baseline_svm)
-print(f"Saved baseline SVM model at: {save_path_baseline_svm}")
-print("----------------------------------------")
-
+}, "svm_baseline.pkl")
+print("Saved as 'svm_baseline.pkl'")
 
 # -------------------------------------------------------------
-# SVM - AFTER TUNING
+# SVM - AFTER TUNING using Grid Search
 # -------------------------------------------------------------
-tuned_svm_model = SVC(
-    kernel='rbf',               # RBF = non-linear kernel
-    gamma='scale',              # Uses 1 / (n_features * X.var()) as gamma
-    class_weight='balanced',    # Fix imbalance in classes
-    probability=True,           # Enables ROC + predict_proba
-    C=1.0,                      # Soft margin cost (optional)
-    random_state=25
+
+# Step 1: Define the hyperparameter grid
+param_grid_svm = {
+    'C': [0.1, 1, 10],                       # Regularization parameter
+    'kernel': ['linear', 'rbf'],             # Kernel type
+    'gamma': ['scale', 'auto'],              # Kernel coefficient
+    'class_weight': ['balanced', None]       # Handle imbalanced classes
+}
+
+# Step 2: Set up GridSearchCV
+grid_search_svm = GridSearchCV(
+    estimator=SVC(probability=True, random_state=25),  # Enable probability for ROC
+    param_grid=param_grid_svm,
+    scoring='f1',        # Focus on F1 Score
+    cv=5,                # 5-fold cross-validation
+    n_jobs=-1            # Use all available processors
 )
 
-tuned_svm_model.fit(X_train_balanced, y_train_balanced)
+# Step 3: Fit to training data
+grid_search_svm.fit(X_train_balanced, y_train_balanced)
+
+# Step 4: Get best model from search
+tuned_svm_model = grid_search_svm.best_estimator_
+
+# Step 5: Predict and evaluate
 tuned_svm_pred = tuned_svm_model.predict(X_test)
 tuned_svm_proba = tuned_svm_model.predict_proba(X_test)[:, 1]
 
@@ -638,19 +679,20 @@ model_scores["SVM"] = {
     "F1 Score": f1_score(y_test, tuned_svm_pred)
 }
 
+# Step 6: Output results
 print("\n---------- SVM (After Tuning) ----------")
+print("Best Parameters Found:", grid_search_svm.best_params_)
 print("Confusion Matrix:\n", confusion_matrix(y_test, tuned_svm_pred))
 print("Classification Report:\n", classification_report(y_test, tuned_svm_pred))
 fpr, tpr, _ = roc_curve(y_test, tuned_svm_proba)
 plt.plot(fpr, tpr, label="SVM (Tuned) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save tuned SVM model
-save_path_tuned_svm = os.path.join(os.getcwd(), "svm_model.pkl")
+# Step 7: Save the best model
 joblib.dump({
     "model": tuned_svm_model,
     "features": final_feature_names
-}, save_path_tuned_svm)
-print(f"Saved tuned SVM model at: {save_path_tuned_svm}")
+}, "svm_model.pkl")
+print("SVM model saved as 'svm_model.pkl'")
 print("----------------------------------------")
 
 # 4. Neural Network
@@ -668,30 +710,43 @@ print("Classification Report:\n", classification_report(y_test, baseline_nn_pred
 fpr, tpr, _ = roc_curve(y_test, baseline_nn_proba)
 plt.plot(fpr, tpr, label="Neural Net (Before) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save baseline neural network model
-save_path_baseline_nn = os.path.join(os.getcwd(), "neural_network_baseline.pkl")
 joblib.dump({
     "model": baseline_nn_model,
     "features": final_feature_names
-}, save_path_baseline_nn)
-print(f"Saved baseline Neural Network model at: {save_path_baseline_nn}")
-print("----------------------------------------")
-
+}, "neural_network_baseline.pkl")
+print("Saved as 'neural_network_baseline.pkl'")
 
 # -----------------------------------------------------------------------------
-# Neural Network - AFTER TUNING
+# Neural Network - AFTER TUNING using Grid Search
 # -----------------------------------------------------------------------------
-nn_model = MLPClassifier(
-    hidden_layer_sizes=(100, 50),  # Two hidden layers: 100 to 50 neurons
-    alpha=0.0005,                  # Adds more L2 regularization to reduce overfitting from 0.0001
-    learning_rate='adaptive',      # Adjusts learning rate based on training performance
-    max_iter=1000,                 # Maximum epochs to converge
-    random_state=25
+
+# Step 1: Define the hyperparameter grid
+param_grid_nn = {
+    'hidden_layer_sizes': [(100,), (100, 50), (50, 30)],  # Different layer configurations
+    'alpha': [0.0001, 0.0005, 0.001],                      # L2 regularization strength
+    'learning_rate': ['constant', 'adaptive']             # Learning rate schedule
+}
+
+# Step 2: Setup GridSearchCV with MLPClassifier
+grid_search_nn = GridSearchCV(
+    estimator=MLPClassifier(max_iter=1000, random_state=25),
+    param_grid=param_grid_nn,
+    scoring='f1',     # Optimize for F1 score
+    cv=5,             # 5-fold cross-validation
+    n_jobs=-1         # Use all available cores
 )
-nn_model.fit(X_train_balanced, y_train_balanced)
+
+# Step 3: Train the grid search on balanced training data
+grid_search_nn.fit(X_train_balanced, y_train_balanced)
+
+# Step 4: Use the best model found from grid search
+nn_model = grid_search_nn.best_estimator_
+
+# Step 5: Predict using tuned model
 nn_pred = nn_model.predict(X_test)
 nn_proba = nn_model.predict_proba(X_test)[:, 1]
 
+# Step 6: Store performance metrics
 model_scores["Neural Network"] = {
     "Accuracy": accuracy_score(y_test, nn_pred),
     "Precision": precision_score(y_test, nn_pred),
@@ -699,19 +754,20 @@ model_scores["Neural Network"] = {
     "F1 Score": f1_score(y_test, nn_pred)
 }
 
+# Step 7: Output results and metrics
 print("\n---------- Neural Network (After Tuning) ----------")
+print("Best Parameters Found:", grid_search_nn.best_params_)
 print("Confusion Matrix:\n", confusion_matrix(y_test, nn_pred))
 print("Classification Report:\n", classification_report(y_test, nn_pred))
 fpr, tpr, _ = roc_curve(y_test, nn_proba)
 plt.plot(fpr, tpr, label="Neural Net (Tuned) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save tuned neural network model
-save_path_tuned_nn = os.path.join(os.getcwd(), "neural_network_model.pkl")
+# Step 8: Save model
 joblib.dump({
     "model": nn_model,
     "features": final_feature_names
-}, save_path_tuned_nn)
-print(f"Saved tuned Neural Network model at: {save_path_tuned_nn}")
+}, "neural_network_model.pkl")
+print("Neural Network model saved as 'neural_network_model.pkl'")
 print("----------------------------------------")
 
 # 5. KNN
@@ -729,28 +785,43 @@ print("Classification Report:\n", classification_report(y_test, baseline_knn_pre
 fpr, tpr, _ = roc_curve(y_test, baseline_knn_proba)
 plt.plot(fpr, tpr, label="KNN (Before) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save baseline KNN model
-save_path_baseline_knn = os.path.join(os.getcwd(), "knn_baseline_model.pkl")
 joblib.dump({
     "model": baseline_knn,
     "features": final_feature_names
-}, save_path_baseline_knn)
-print(f"Saved baseline KNN model at: {save_path_baseline_knn}")
-print("----------------------------------------")
-
+}, "knn_baseline_model.pkl")
+print("Saved as 'knn_baseline_model.pkl'")
 
 # -----------------------------------------------------------------------------
-# KNN - AFTER TUNING
+# KNN - AFTER TUNING using Grid Search
 # -----------------------------------------------------------------------------
-knn_model = KNeighborsClassifier(
-    n_neighbors=7,        # Try different neighbor counts / Number of neighbors to vote. More neighbors = smoother boundary.
-    weights='distance',   # Weight closer neighbors more / Closer neighbors have more influence (helps accuracy).
-    p=2                   # L2 norm (Euclidean). If p=1, it uses Manhattan distance.
+
+# Step 1: Define the hyperparameter grid
+param_grid_knn = {
+    'n_neighbors': [3, 5, 7, 9],          # Try various neighbor counts
+    'weights': ['uniform', 'distance'],  # Vote equally vs weight closer neighbors
+    'p': [1, 2]                           # p=1: Manhattan, p=2: Euclidean
+}
+
+# Step 2: Setup GridSearchCV for KNN
+grid_search_knn = GridSearchCV(
+    estimator=KNeighborsClassifier(),
+    param_grid=param_grid_knn,
+    scoring='f1',    # Optimize for F1 Score
+    cv=5,            # 5-fold cross-validation
+    n_jobs=-1        # Use all available cores
 )
-knn_model.fit(X_train_balanced, y_train_balanced)
-knn_pred = knn_model.predict(X_test)
-knn_proba = knn_model.predict_proba(X_test)[:, 1]
 
+# Step 3: Fit grid search on balanced training data
+grid_search_knn.fit(X_train_balanced, y_train_balanced)
+
+# Step 4: Get best tuned model from grid search
+knn_model = grid_search_knn.best_estimator_
+
+# Step 5: Predict using the tuned model
+knn_pred = knn_model.predict(X_test)
+knn_proba = knn_model.predict_proba(X_test)[:, 1]  # KNN supports predict_proba
+
+# Step 6: Evaluate performance metrics
 model_scores["KNN"] = {
     "Accuracy": accuracy_score(y_test, knn_pred),
     "Precision": precision_score(y_test, knn_pred),
@@ -758,19 +829,20 @@ model_scores["KNN"] = {
     "F1 Score": f1_score(y_test, knn_pred)
 }
 
+# Step 7: Print results
 print("\n---------- KNN (After Tuning) ----------")
+print("Best Parameters Found:", grid_search_knn.best_params_)
 print("Confusion Matrix:\n", confusion_matrix(y_test, knn_pred))
 print("Classification Report:\n", classification_report(y_test, knn_pred))
 fpr, tpr, _ = roc_curve(y_test, knn_proba)
 plt.plot(fpr, tpr, label="KNN (Tuned) AUC = {:.2f}".format(auc(fpr, tpr)))
 
-# Save tuned KNN model
-save_path_tuned_knn = os.path.join(os.getcwd(), "knn_model.pkl")
+# Step 8: Save tuned model
 joblib.dump({
     "model": knn_model,
     "features": final_feature_names
-}, save_path_tuned_knn)
-print(f"Saved tuned KNN model at: {save_path_tuned_knn}")
+}, "knn_model.pkl")
+print("KNN model saved as 'knn_model.pkl'")
 print("----------------------------------------")
 
 # -----------------------------------------------------------------------------
@@ -803,8 +875,7 @@ print("-------------------------------------------------------------")
 print(f"Recommended Model: {best_model} (Based on highest F1 Score)")
 print("-------------------------------------------------------------")
 
-print(X_train_balanced.shape)
-print(X_train_balanced.columns.tolist())
+
 # print("Top 5 STREET1 values used the most:")
 # print(Group_data["STREET1"].value_counts().head(5))
 
