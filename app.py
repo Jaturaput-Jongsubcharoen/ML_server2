@@ -8,7 +8,7 @@ import warnings
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["*"], allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
+CORS(app, origins=["https://ml-client-e3vd.onrender.com"], allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 # Load all trained models and feature lists
 models = {
