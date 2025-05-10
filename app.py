@@ -8,7 +8,7 @@ import warnings
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app)
 
 # Load all trained models and feature lists
 models = {
@@ -23,21 +23,20 @@ models = {
 def home():
     return "Machine Learning Model API is running."
 
-@app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
+    if request.method == "OPTIONS":
+        # Preflight CORS support
+        return '', 204
+
     try:
-        # Get input JSON from request
         data = request.get_json(force=True)
         model_name = data.get("model_name")
         input_data = data.get("input", {})
 
-        print("\nIncoming Payload:", input_data)
-
-        # Validate model selection
         if model_name not in models:
             return jsonify({"error": f"Invalid model name: {model_name}"}), 400
 
-        # Load model and expected features
         model_bundle = models[model_name]
         model = model_bundle["model"]
         expected_features = model_bundle["features"]
@@ -51,18 +50,13 @@ def predict():
         if missing:
             return jsonify({"error": f"Missing required input fields: {missing}"}), 400
 
-        # Arrange input in the correct order
         row = [input_data[col] for col in expected_features]
 
-        # Convert to NumPy array and predict
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             prediction = int(model.predict([row])[0])
 
-        return jsonify({
-            "model": model_name,
-            "prediction": prediction
-        })
+        return jsonify({"model": model_name, "prediction": prediction})
 
     except Exception as e:
         traceback.print_exc()
